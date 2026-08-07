@@ -1,0 +1,91 @@
+import { Trophy } from 'lucide-react';
+import { useReadContract, useReadContracts } from 'wagmi';
+import { formatUnits } from 'viem';
+import { LOTTERY_ADDRESS, LOTTERY_ABI } from '../constants';
+
+export function WinnersHistory() {
+  const { data: currentRound } = useReadContract({
+    address: LOTTERY_ADDRESS,
+    abi: LOTTERY_ABI,
+    functionName: 'currentRound',
+  });
+
+  const roundNum = currentRound ? Number(currentRound) : 0;
+  
+  // Create an array of up to 5 previous rounds
+  const pastRounds = [];
+  for (let i = 1; i <= 5; i++) {
+    if (roundNum - i > 0) {
+      pastRounds.push(roundNum - i);
+    }
+  }
+
+  const { data: winnersData } = useReadContracts({
+    contracts: pastRounds.map(r => ({
+      address: LOTTERY_ADDRESS,
+      abi: LOTTERY_ABI,
+      functionName: 'roundWinners',
+      args: [BigInt(r)],
+    })),
+    query: {
+      enabled: pastRounds.length > 0,
+    }
+  });
+
+  const formatAddress = (addr?: string) => {
+    if (!addr || addr === '0x0000000000000000000000000000000000000000') return '-';
+    return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
+  };
+
+  const formattedWinners = pastRounds.map((round, idx) => {
+    const winnerInfo = winnersData?.[idx]?.result as [string, bigint, bigint] | undefined;
+    return {
+      round,
+      address: winnerInfo?.[0] || '',
+      prize: winnerInfo ? Number(formatUnits(winnerInfo[1], 6)) : 0,
+    };
+  });
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-lg bg-amber-900/30 flex items-center justify-center text-amber-400">
+          <Trophy className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-white">Past Winners</h2>
+          <p className="text-sm text-slate-400">Recent lottery results</p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-slate-700 text-sm font-medium text-slate-400">
+              <th className="pb-3 px-2">Round</th>
+              <th className="pb-3 px-2">Winner Address</th>
+              <th className="pb-3 px-2 text-right">Prize (USDC)</th>
+            </tr>
+          </thead>
+          <tbody className="text-sm">
+            {formattedWinners.length > 0 ? formattedWinners.map((winner) => (
+              <tr key={winner.round} className="border-b border-slate-700/50 last:border-0 hover:bg-slate-700/20 transition-colors">
+                <td className="py-4 px-2 font-medium text-slate-300">#{winner.round}</td>
+                <td className="py-4 px-2 font-mono text-cyan-400">{formatAddress(winner.address)}</td>
+                <td className="py-4 px-2 text-right font-semibold text-emerald-400">
+                  {winner.prize > 0 ? winner.prize.toLocaleString() : '-'}
+                </td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={3} className="py-8 text-center text-slate-500">
+                  No past winners yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
