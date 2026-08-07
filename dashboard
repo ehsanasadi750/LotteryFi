@@ -1,0 +1,82 @@
+import { Ticket } from 'lucide-react';
+import { useAccount, useReadContract } from 'wagmi';
+import { LOTTERY_ADDRESS, LOTTERY_ABI } from '../constants';
+
+export function UserDashboard() {
+  const { address, isConnected } = useAccount();
+
+  const { data: currentRound } = useReadContract({
+    address: LOTTERY_ADDRESS,
+    abi: LOTTERY_ABI,
+    functionName: 'currentRound',
+    query: {
+      refetchInterval: 10000,
+    }
+  });
+
+  const { data: userTickets } = useReadContract({
+    address: LOTTERY_ADDRESS,
+    abi: LOTTERY_ABI,
+    functionName: 'getUserTickets',
+    args: currentRound !== undefined && address ? [currentRound as bigint, address] : undefined,
+    query: {
+      enabled: currentRound !== undefined && !!address,
+      refetchInterval: 10000,
+    }
+  });
+
+  if (!isConnected) {
+    return (
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 text-center">
+        <div className="w-12 h-12 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Ticket className="w-6 h-6 text-slate-500" />
+        </div>
+        <h3 className="text-xl font-bold text-white mb-2">My Dashboard</h3>
+        <p className="text-slate-400">Connect your wallet to view your purchased tickets.</p>
+      </div>
+    );
+  }
+
+  const numTickets = userTickets !== undefined ? Number(userTickets) : 0;
+  const roundDisplay = currentRound !== undefined ? String(currentRound) : '...';
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-white">My Dashboard</h2>
+          <p className="text-sm text-slate-400">Your tickets for Round #{roundDisplay}</p>
+        </div>
+        <div className="px-3 py-1 bg-cyan-900/30 text-cyan-400 border border-cyan-800/50 rounded-full text-sm font-medium">
+          {numTickets} Tickets
+        </div>
+      </div>
+
+      {numTickets > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {Array.from({ length: Math.min(numTickets, 100) }).map((_, i) => (
+            <div key={i} className="bg-slate-900/50 border border-slate-700 rounded-lg p-3 flex flex-col items-center justify-center gap-1 hover:border-cyan-500/50 transition-colors cursor-default">
+              <Ticket className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-mono text-slate-300">TKT-{i+1}</span>
+            </div>
+          ))}
+          {numTickets > 100 && (
+            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3 flex flex-col items-center justify-center gap-1 cursor-default text-slate-400 text-sm">
+              +{numTickets - 100} more
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="text-center py-8">
+          <p className="text-slate-400 text-sm">You haven't bought any tickets for this round yet.</p>
+        </div>
+      )}
+      
+      <div className="mt-6 pt-6 border-t border-slate-700">
+        <button className="text-sm text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
+          View past participation history &rarr;
+        </button>
+      </div>
+    </div>
+  );
+}
