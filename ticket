@@ -1,0 +1,150 @@
+import { useState, useEffect } from 'react';
+import { Ticket, Minus, Plus, Loader2 } from 'lucide-react';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { parseUnits } from 'viem';
+import { LOTTERY_ADDRESS, LOTTERY_ABI, USDC_ADDRESS, USDC_ABI } from '../constants';
+import { arcTestnet } from '../wagmi';
+
+export function TicketPurchase() {
+  const { address, isConnected, chainId } = useAccount();
+  const [ticketCount, setTicketCount] = useState<number>(1);
+  const PRICE_PER_TICKET = 1;
+  const [isApproving, setIsApproving] = useState(false);
+
+  const totalCostRaw = parseUnits((ticketCount * PRICE_PER_TICKET).toString(), 6);
+
+  const isWrongNetwork = isConnected && chainId !== arcTestnet.id;
+
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: USDC_ABI,
+    functionName: 'allowance',
+    args: address ? [address, LOTTERY_ADDRESS] : undefined,
+    query: { enabled: !!address }
+  });
+
+  const { 
+    data: hash, 
+    isPending: isWritePending, 
+    writeContract, 
+    reset: resetWrite 
+  } = useWriteContract();
+
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = 
+    useWaitForTransactionReceipt({ hash });
+
+  const needsApproval = allowance !== undefined && (allowance as bigint) < totalCostRaw;
+
+  useEffect(() => {
+    if (isConfirmed) {
+      if (isApproving) {
+        setIsApproving(false);
+        refetchAllowance().then(() => {
+          writeContract({
+            address: LOTTERY_ADDRESS,
+            abi: LOTTERY_ABI,
+            functionName: 'buyTickets',
+            args: [BigInt(ticketCount)],
+          });
+        });
+      } else {
+        resetWrite();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConfirmed]);
+
+  const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value);
+    if (!isNaN(val) && val > 0) setTicketCount(val);
+    else if (e.target.value === '') setTicketCount(0);
+  };
+
+  const handleAction = () => {
+    if (isWrongNetwork) return;
+    
+    if (needsApproval) {
+      setIsApproving(true);
+      writeContract({
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        functionName: 'approve',
+        args: [LOTTERY_ADDRESS, totalCostRaw],
+      });
+    } else {
+      setIsApproving(false);
+      writeContract({
+        address: LOTTERY_ADDRESS,
+        abi: LOTTERY_ABI,
+        functionName: 'buyTickets',
+        args: [BigInt(ticketCount)],
+      });
+    }
+  };
+
+  const isButtonDisabled = !isConnected || isWrongNetwork || ticketCount <= 0 || isWritePending || isConfirming;
+
+  let buttonText = 'Buy Tickets Now';
+  if (!isConnected) buttonText = 'Connect Wallet to Buy';
+  else if (isWrongNetwork) buttonText = 'Switch Network to Buy';
+  else if (isWritePending || isConfirming) {
+    buttonText = isApproving ? 'Approving USDC...' : 'Buying Tickets...';
+  } else if (needsApproval) {
+    buttonText = 'Approve USDC';
+  }
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-lg bg-cyan-900/30 flex items-center justify-center text-cyan-400">
+          <Ticket className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-white">Buy Tickets</h2>
+          <p className="text-sm text-slate-400">Base price: {PRICE_PER_TICKET} USDC per ticket</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <button onClick={() => setTicketCount(1)} className={`py-3 rounded-xl border font-medium transition-colors ${ticketCount === 1 ? 'bg-cyan-900/20 border-cyan-500 text-cyan-400' : 'bg-slate-900/50 border-slate-700 text-slate-300 hover:border-slate-600'}`}>1 Ticket</button>
+        <button onClick={() => setTicketCount(10)} className={`py-3 rounded-xl border font-medium transition-colors ${ticketCount === 10 ? 'bg-cyan-900/20 border-cyan-500 text-cyan-400' : 'bg-slate-900/50 border-slate-700 text-slate-300 hover:border-slate-600'}`}>10 Tickets</button>
+        <button onClick={() => setTicketCount(100)} className={`py-3 rounded-xl border font-medium transition-colors ${ticketCount === 100 ? 'bg-cyan-900/20 border-cyan-500 text-cyan-400' : 'bg-slate-900/50 border-slate-700 text-slate-300 hover:border-slate-600'}`}>100 Tickets</button>
+      </div>
+
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-slate-400 mb-2">Custom Amount</label>
+        <div className="relative flex items-center">
+          <button onClick={() => setTicketCount(prev => Math.max(1, prev - 1))} className="absolute left-3 p-1.5 text-slate-400 hover:text-white transition-colors bg-slate-800 rounded-md border border-slate-600"><Minus className="w-4 h-4" /></button>
+          <input 
+            type="number" 
+            min="1" 
+            value={ticketCount || ''} 
+            onChange={handleCustomChange}
+            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl py-3 px-12 text-center text-white font-semibold focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+          />
+          <button onClick={() => setTicketCount(prev => prev + 1)} className="absolute right-3 p-1.5 text-slate-400 hover:text-white transition-colors bg-slate-800 rounded-md border border-slate-600"><Plus className="w-4 h-4" /></button>
+        </div>
+      </div>
+
+      <div className="flex justify-between items-center mb-6 py-4 border-t border-slate-700 text-lg">
+        <span className="font-medium text-slate-300">Total Cost</span>
+        <span className="font-bold text-white">{ticketCount * PRICE_PER_TICKET || 0} USDC</span>
+      </div>
+
+      <button 
+        disabled={isButtonDisabled}
+        onClick={handleAction}
+        className={`w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2 ${
+          !isConnected || isWrongNetwork
+            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
+            : ticketCount <= 0 || isWritePending || isConfirming
+              ? 'bg-cyan-600/50 text-white/50 cursor-not-allowed'
+              : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-[0_0_20px_rgba(8,145,178,0.3)]'
+        }`}
+      >
+        {(isWritePending || isConfirming) && <Loader2 className="w-5 h-5 animate-spin" />}
+        {buttonText}
+      </button>
+    </div>
+  );
+}
